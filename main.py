@@ -16,7 +16,7 @@ class PlexHolidays():
 
         print('Matching Episodes: ')
         for episode in matching_eps:
-            print(f'\t{episode.title}')
+            print('\t', episode.title)
         Playlist.create(plex_server, input('Playlist name: '), matching_eps)
 
         print('Happy Holidays!')
@@ -33,7 +33,7 @@ class PlexHolidays():
     def get_plex_server(self):
         # Sign into Plex account
         while True:
-            username = input("Username: ")
+            username = input("Plex Username: ")
             password = getpass.getpass()
 
             print('Signing into Plex... ', end='', flush=True)
@@ -64,12 +64,11 @@ class PlexHolidays():
 
     def imdb_search(self, keyword):
         results = dict()
-        base_url = ('http://www.imdb.com/search/title?'
-                    f'&title_type=tv_episode&view=simple&count=100&keywords={keyword}')
+        base_url = ('http://www.imdb.com/search/title?&title_type=tv_episode&view=simple&count=100&keywords=' + keyword.replace(' ', '-') + '&start=')
 
         print('Fetching IMDb results... ', end='', flush=True)
         for i in range(1, 5000, 100):
-            url = (base_url + f'&start={i}')
+            url = (base_url + str(i))
             html = urllib.request.urlopen(url).read()
             soup = BeautifulSoup(html, 'html.parser')
             spans = soup.find_all('span', title=True)
