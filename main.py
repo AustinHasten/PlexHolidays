@@ -11,7 +11,7 @@ class PlexHolidays():
     def __init__(self):
         plex_server = self.get_plex_server()
         plex_shows = plex_server.library.section('TV Shows').all()
-        imdb_results = self.imdb_search(input('Keyword: ').lower())
+        imdb_results = self.imdb_search(input('Keyword (i.e. Holiday Name): ').lower())
         matching_eps = self.get_matching_eps(plex_shows, imdb_results)
 
         print('Matching Episodes: ')
