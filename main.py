@@ -48,8 +48,7 @@ class Plex():
         """
             Select section from Plex server.
         """
-#        sections = [ _ for _ in server.library.sections() if _.type == 'show' ]
-        sections = [ _ for _ in server.library.sections() ]
+        sections = [ _ for _ in server.library.sections() if _.type == 'show' ]
         if not sections:
             print('No available sections.')
             sys.exit()
@@ -59,7 +58,7 @@ class Plex():
     # TODO Change this function such that it's no longer specific to TV episodes
     def get_matching_media(self, lookup):
         """
-            Find matching items between a Plex library and a dictionary.
+            Find matching items between a Plex library section and a dictionary.
         """
         matching_media = []
         matching_shows = [ show for show in self.media if show.title in lookup ]
@@ -67,6 +66,7 @@ class Plex():
             for episode in show.episodes():
                 if episode.title.lower() in lookup[show.title]:
                     matching_media.append(episode)
+
         return matching_media
 
     def create_playlist(self, name, media):
