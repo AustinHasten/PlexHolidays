@@ -32,8 +32,11 @@ class Plex():
     
     def get_account_server(self, account):
         # Select server from Plex account
-        # TODO Handle case where servers[] is empty
         servers = [ _ for _ in account.resources() if _.product == 'Plex Media Server' ]
+        if not servers:
+            print('No available servers.')
+            sys.exit()
+
         while True:
             print('Available servers:')
             for x in servers:
@@ -51,8 +54,11 @@ class Plex():
 
     def get_server_section(self, server):
         # Select section from Plex server
-        # TODO Handle case where sections[] is empty
         sections = [ _ for _ in server.library.sections() if _.type == 'show' ]
+        if not sections:
+            print('No available sections.')
+            sys.exit()
+
         while True:
             print('Available sections:')
             for section in sections:
