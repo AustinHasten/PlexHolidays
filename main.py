@@ -15,7 +15,9 @@ class Plex():
         self.media = self.section.all()
 
     def get_account(self):
-        # Sign into Plex account
+        """
+            Sign into Plex account.
+        """
         while True:
             username = input("Plex Username: ")
             password = getpass.getpass()
@@ -31,16 +33,20 @@ class Plex():
         return account
     
     def get_account_server(self, account):
-        # Select server from Plex account
+        """
+            Select server from Plex account.
+        """
         servers = [ _ for _ in account.resources() if _.product == 'Plex Media Server' ]
         if not servers:
             print('No available servers.')
             sys.exit()
 
+        # Loop until valid server name is given
         while True:
             print('Available servers:')
             for x in servers:
                 print('\t', x.name)
+
             server_name = input('Select server: ')
             print('Connecting to server... ', end='', flush=True)
             try:
@@ -50,15 +56,19 @@ class Plex():
                 continue
             print('Done')
             break
+
         return server
 
     def get_server_section(self, server):
-        # Select section from Plex server
+        """
+            Select section from Plex server.
+        """
         sections = [ _ for _ in server.library.sections() if _.type == 'show' ]
         if not sections:
             print('No available sections.')
             sys.exit()
 
+        # Loop until valid section name is given
         while True:
             print('Available sections:')
             for section in sections:
@@ -74,45 +84,48 @@ class Plex():
             break
         return plex_section
 
+    # TODO Change this function such that it's no longer specific to TV episodes
     def get_matching_media(self, lookup):
+        """
+            Find matching items between a Plex library and a dictionary.
+        """
         matching_media = []
-        for show in self.media:
-            if show.title in lookup:
-                for episode in show.episodes():
-                    if episode.title.lower() in lookup[show.title]:
-                        matching_media.append(episode)
+        matching_shows = [ show for show in self.media if show.title in lookup ]
+        for show in matching_shows:
+            for episode in show.episodes():
+                if episode.title.lower() in lookup[show.title]:
+                    matching_media.append(episode)
         return matching_media
 
     def create_playlist(self, name, media):
         Playlist.create(self.server, name, media)
 
 def imdb_search(keyword):
+    """
+        Search IMDb for a keyword and parse results into a dictionary.
+    """
     results = dict()
     keyword = keyword.lower().replace(' ', '-')
-    base_url = ('http://www.imdb.com/search/title?&title_type=tv_episode&view=simple&count=100&keywords=' + keyword + '&start=')
+    url = ('http://www.imdb.com/search/title?&title_type=tv_episode&view=simple&count=2000&keywords=' + keyword)
 
     print('Fetching IMDb results... ', end='', flush=True)
-    for i in range(1, 5000, 100):
-        html = urllib.request.urlopen(base_url + str(i)).read()
-        soup = BeautifulSoup(html, 'html.parser')
-        spans = soup.find_all('span', title=True)
+    # Loop over results 100 at a time rather than all at once to prevent timeout
+    html = urllib.request.urlopen(url, timeout=60).read()
+    soup = BeautifulSoup(html, 'html.parser')
+    spans = soup.find_all('span', title=True)
+    for span in spans:
+        a = span.find_all('a')
 
-        if not spans:
-            break
+        # Show without episode name
+        if len(a) < 2:
+            continue
 
-        for span in spans:
-            a = span.find_all('a')
-
-            # Show without episode name
-            if len(a) < 2:
-                continue
-
-            show_name = a[0].contents[0].strip()
-            episode_name = a[1].contents[0].strip().lower()
-            if show_name in results:
-                results[show_name].append(episode_name)
-            else:
-                results[show_name] = [ episode_name ]
+        show_name = a[0].contents[0].strip()
+        episode_name = a[1].contents[0].strip().lower()
+        if show_name in results:
+            results[show_name].append(episode_name)
+        else:
+            results[show_name] = [ episode_name ]
     print('Done')
 
     return results
@@ -128,6 +141,6 @@ if __name__ == "__main__":
         episode = str(media.index).zfill(2)
         se = ('S' + season + 'E' + episode)
         print('\t', media.grandparentTitle, '-', se, '-', media.title)
-    #plex.create_playlist(input('Playlist name: '), matching_media)
+    plex.create_playlist(input('Playlist name: '), matching_media)
 
     print('Happy Holidays!')
