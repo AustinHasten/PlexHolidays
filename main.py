@@ -80,50 +80,48 @@ class Plex():
     def create_playlist(self, name, media):
         Playlist.create(self.server, name, media)
 
-class PlexHolidays():
-    def __init__(self):
-        plex = Plex()
-        imdb_results = self.imdb_search(input('Keyword (i.e. Holiday Name): '))
-        matching_media = plex.get_matching_media(imdb_results)
+def imdb_search(keyword):
+    results = dict()
+    keyword = keyword.lower().replace(' ', '-')
+    base_url = ('http://www.imdb.com/search/title?&title_type=tv_episode&view=simple&count=100&keywords=' + keyword + '&start=')
 
-        print('Matching Media: ')
-        for media in matching_media:
-            print('\t', media.title)
-        plex.create_playlist(input('Playlist name: '), matching_media)
+    print('Fetching IMDb results... ', end='', flush=True)
+    for i in range(1, 5000, 100):
+        html = urllib.request.urlopen(base_url + str(i)).read()
+        soup = BeautifulSoup(html, 'html.parser')
+        spans = soup.find_all('span', title=True)
 
-        print('Happy Holidays!')
+        if not spans:
+            break
 
-    def imdb_search(self, keyword):
-        results = dict()
-        keyword = keyword.lower().replace(' ', '-')
-        base_url = ('http://www.imdb.com/search/title?&title_type=tv_episode&view=simple&count=100&keywords=' + keyword + '&start=')
+        for span in spans:
+            a = span.find_all('a')
 
-        print('Fetching IMDb results... ', end='', flush=True)
-        for i in range(1, 5000, 100):
-            url = (base_url + str(i))
-            html = urllib.request.urlopen(url).read()
-            soup = BeautifulSoup(html, 'html.parser')
-            spans = soup.find_all('span', title=True)
+            # Show without episode name
+            if len(a) < 2:
+                continue
 
-            if not spans:
-                break
+            show_name = a[0].contents[0].strip()
+            episode_name = a[1].contents[0].strip().lower()
+            if show_name in results:
+                results[show_name].append(episode_name)
+            else:
+                results[show_name] = [ episode_name ]
+    print('Done')
 
-            for span in spans:
-                a = span.find_all('a')
-
-                # Show without episode name
-                if len(a) < 2:
-                    continue
-
-                show_name = a[0].contents[0].strip()
-                episode_name = a[1].contents[0].strip().lower()
-                if show_name in results:
-                    results[show_name].append(episode_name)
-                else:
-                    results[show_name] = [ episode_name ]
-        print('Done')
-
-        return results
+    return results
 
 if __name__ == "__main__":
-    PH = PlexHolidays()
+    plex = Plex()
+    imdb_results = imdb_search(input('Keyword (i.e. Holiday Name): '))
+    matching_media = plex.get_matching_media(imdb_results)
+
+    print('Matching Media: ')
+    for media in matching_media:
+        season = media.parentIndex.zfill(2)
+        episode = str(media.index).zfill(2)
+        se = ('S' + season + 'E' + episode)
+        print('\t', media.grandparentTitle, '-', se, '-', media.title)
+    #plex.create_playlist(input('Playlist name: '), matching_media)
+
+    print('Happy Holidays!')
