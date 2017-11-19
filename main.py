@@ -101,10 +101,13 @@ class PlexHolidays():
             if keyword in keywords:
                 keyword_matches.append(plex_medium)
 
-        print('Titles matching\"', keyword, '\" :')
-        for match in keyword_matches:
-            print('\t', match.title)
-        self.plex.create_playlist(input('Playlist name: '), keyword_matches)
+        if keyword_matches:
+            print('Titles matching\"', keyword, '\" :')
+            for match in keyword_matches:
+                print('\t', match.title)
+            self.plex.create_playlist(input('Playlist name: '), keyword_matches)
+        else:
+            print('No matches found. D:')
 
         print('Happy Holidays!')
 
