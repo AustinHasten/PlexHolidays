@@ -1,3 +1,3 @@
-Automatically find holiday episodes on a Plex server and add them to a playlist.
+Automatically find holiday movies/episodes on a Plex server and add them to a playlist.
 
-Required Python3 modules: PlexAPI, bs4
+Required Python3 modules: plexapi, imdbpy, tqdm
