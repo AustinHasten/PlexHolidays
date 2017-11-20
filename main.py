@@ -98,7 +98,7 @@ class PlexHolidays():
                 continue
 
             keywords = self.get_keywords(imdb_medium)
-            if keyword in keywords:
+            if keyword.lower() in keywords:
                 keyword_matches.append(plex_medium)
 
         if keyword_matches:
