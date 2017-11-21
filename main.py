@@ -3,9 +3,10 @@
 
 import sys
 import getpass
+import logging
+import threading
 import plexapi.utils
-from tqdm import tqdm
-from imdb import IMDb
+from imdb import IMDb, IMDbDataAccessError
 from plexapi.myplex import MyPlexAccount
 from plexapi.playlist import Playlist
 from plexapi.exceptions import BadRequest
@@ -28,11 +29,10 @@ class Plex():
             print('Signing into Plex... ', end='', flush=True)
             try:
                 account = MyPlexAccount(username, password)
+                print('Done')
+                break
             except BadRequest:
                 print('Invalid Username/Password.')
-                continue
-            print('Done')
-            break
         return account
     
     def get_account_server(self, account):
@@ -59,7 +59,7 @@ class Plex():
 
     def get_flat_media(self):
         """
-            Flatten this object's section's media list."
+            Flatten this object's section's media list.
         """
         # Movie sections are already flat
         if self.section.type == 'movie':
@@ -76,47 +76,44 @@ class Plex():
         """
             Create or update playlist with list of media.
         """
-        for playlist in self.server.playlists():
-            if name == playlist.title:
+        # TODO Handle this
+        if not media:
+            return
+        playlist = next((p for p in self.server.playlists() if p.title == name), None)
+        if playlist:
                 playlist.addItems(media)
-                break
         else:
             Playlist.create(self.server, name, media)
 
-class PlexHolidays():
-    def __init__(self):
-        self.plex = Plex()
-        self.imdb = IMDb()
-        keyword = input('Keyword (i.e. Holiday name): ')
-        keyword_matches = []
+class Plex2IMDb(threading.Thread):
+    # Class variables
+    MAX_THREADS = 10
+    imdb = IMDb()
+    thread_limiter = threading.BoundedSemaphore(MAX_THREADS)
 
-        print('Scanning', self.plex.section.title, '...')
-        for plex_medium in tqdm(self.plex.media):
-            imdb_medium = self.plex2imdb(plex_medium)
+    # TODO Find out how to get the section_type from the plex_obj
+    def __init__(self, plex_obj, section_type):
+        super().__init__()
+        self.setDaemon(True)
+        self.plex_obj = plex_obj
+        self.section_type = section_type
+        self.imdb_obj = None
+        self.keywords = []
 
-            if not imdb_medium:
-                continue
+    def run(self):
+        self.thread_limiter.acquire()
+        try:
+            self.imdb_obj = self.plex2imdb(self.plex_obj, self.section_type)
+            self.keywords = self.get_keywords(self.imdb_obj)
+        finally:
+            self.thread_limiter.release()
 
-            keywords = self.get_keywords(imdb_medium)
-            if keyword.lower() in keywords:
-                keyword_matches.append(plex_medium)
-
-        if keyword_matches:
-            print('Titles matching\"', keyword, '\" :')
-            for match in keyword_matches:
-                print('\t', match.title)
-            self.plex.create_playlist(input('Playlist name: '), keyword_matches)
-        else:
-            print('No matches found. D:')
-
-        print('Happy Holidays!')
-
-    def plex2imdb(self, medium):
+    def plex2imdb(self, plex_obj, section_type):
         """
             Get the IMDbPy object for a given Plex object.
         """
         # Set appropriate search method and acceptable results based on section type
-        if self.plex.section.type == 'movie':
+        if section_type == 'movie':
             kinds = {'movie', 'short', 'tv movie', 'tv short'}
             search_function = self.imdb.search_movie
         else:
@@ -126,32 +123,32 @@ class PlexHolidays():
         # Perform IMDb search for the Plex object
         while True:
             try:
-                results = [ _ for _ in search_function(medium.title) if _['kind'] in kinds ]
+                results = [ _ for _ in search_function(plex_obj.title) if _['kind'] in kinds ]
                 break
-            # Time out, try again.
-            except OSError:
-                print('Timed out while downloading', medium.title)
-                continue
+            except IMDbDataAccessError:
+                pass
 
         # No IMDb results whatsoever
         if not results:
             return None
         # Plex has no year listed, return first search result
-        elif not medium.year:
+        elif not plex_obj.year:
             return results[0]
 
-        closest_result, closest_year = None, 9999
+        closest_result = next((_ for _ in results if _.get('year')))
+        closest_year = (plex_obj.year - closest_result['year'])
         for result in results:
             # This result has no year listed, ignore it.
             if not result.get('year'):
                 continue
 
             # Exact match found
-            if result['year'] == medium.year:
+            if result['year'] == plex_obj.year:
                 return result
             # Track match with closest year in case exact match is not found
-            elif (medium.year - result['year']) < closest_year:
+            elif (plex_obj.year - result['year']) < closest_year:
                 closest_result = result
+                closest_year = (plex_obj.year - result['year'])
         # No exact match found, use result with closest year
         else:
             return closest_result
@@ -163,10 +160,48 @@ class PlexHolidays():
         if not imdb_obj:
             return []
 
-        data = self.imdb.get_movie_keywords(imdb_obj.movieID)['data']
+        while True:
+            try:
+                data = self.imdb.get_movie_keywords(imdb_obj.movieID)['data']
+                break
+            except IMDbDataAccessError:
+                pass
+                
         if not 'keywords' in data:
             return []
         return data['keywords']
 
 if __name__ == "__main__":
-    PH = PlexHolidays()
+    # Necessary to disable imdbpy logger to hide timeouts, which are handled
+    logging.getLogger('imdbpy').disabled = True
+
+    plex = Plex()
+    keyword = input('Keyword (i.e. Holiday name): ').lower()
+    playlist_name = input('Playlist name: ')
+
+    print('Scanning', plex.section.title, '...')
+    thread_list = []
+    for plex_obj in plex.media:
+        t = Plex2IMDb(plex_obj, plex.section.type)
+        t.start()
+        thread_list.append(t)
+
+    for thread in thread_list:
+        thread.join()
+
+    keyword_matches = []
+    for thread in thread_list:
+        if keyword in thread.keywords or \
+           keyword in thread.plex_obj.summary.lower():
+            keyword_matches.append(thread.plex_obj)
+
+    if keyword_matches:
+        print('Items matching keyword:')
+        for match in keyword_matches:
+            print('\t', match.title)
+        plex.create_playlist(playlist_name, keyword_matches)
+        print('Playlist created.')
+    else:
+        print('No matching items, playlist will not be created/updated.')
+
+    print('Happy Holidays!')
