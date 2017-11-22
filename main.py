@@ -87,9 +87,7 @@ class Plex():
 
 class Plex2IMDb(threading.Thread):
     # Class variables
-    MAX_THREADS = 10
     imdb = IMDb()
-    thread_limiter = threading.BoundedSemaphore(MAX_THREADS)
 
     # TODO Find out how to get the section_type from the plex_obj
     def __init__(self, plex_obj, section_type):
@@ -101,12 +99,8 @@ class Plex2IMDb(threading.Thread):
         self.keywords = []
 
     def run(self):
-        self.thread_limiter.acquire()
-        try:
-            self.imdb_obj = self.plex2imdb(self.plex_obj, self.section_type)
-            self.keywords = self.get_keywords(self.imdb_obj)
-        finally:
-            self.thread_limiter.release()
+        self.imdb_obj = self.plex2imdb(self.plex_obj, self.section_type)
+        self.keywords = self.get_keywords(self.imdb_obj)
 
     def plex2imdb(self, plex_obj, section_type):
         """
@@ -183,11 +177,12 @@ if __name__ == "__main__":
     thread_list = []
     for plex_obj in plex.media:
         t = Plex2IMDb(plex_obj, plex.section.type)
-        t.start()
         thread_list.append(t)
-
-    for thread in thread_list:
-        thread.join()
+    for i in range(0, len(thread_list), 10):
+        for t in thread_list[i:(i+10)]:
+            t.start()
+        for t in thread_list[i:(i+10)]:
+            t.join()
 
     keyword_matches = []
     for thread in thread_list:
