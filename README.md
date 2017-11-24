@@ -1,3 +1,6 @@
 Automatically find holiday movies/episodes on a Plex server and add them to a playlist.
+Searches the Plex title, Plex plot, and IMDb keywords for each movie/episode's for a keyword.
 
-Required Python3 modules: plexapi, imdbpy
+On my machine/library/network, shows took an average of <30s each and movies took an average of <2s each.
+
+Required Python3 modules: plexapi, imdbpy, imdbpie, tqdm
