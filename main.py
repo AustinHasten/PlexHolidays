@@ -170,9 +170,9 @@ class PlexHolidays():
 
         print('Scanning', self.plex.section.title, '...')
         if self.plex.section.type == 'movie':
-            keyword_matches = self.match_movies()
+            self.match_movies()
         else:
-            keyword_matches = self.match_episodes()
+            self.match_episodes()
 
         if self.keyword_matches:
             print('Items matching keyword:')
