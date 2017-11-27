@@ -88,6 +88,7 @@ class Plex():
 
 class PlexObject2IMDb(threading.Thread):
     imdbpy = IMDb()
+    thread_limiter = threading.BoundedSemaphore(10)
 
     def __init__(self, plex_obj):
         super().__init__()
@@ -96,9 +97,13 @@ class PlexObject2IMDb(threading.Thread):
         self.imdb_keywords = []
 
     def run(self):
-        self.plex_guid = self.get_plex_guid()
-        self.imdb_id = self.get_imdb_id()
-        self.imdb_keywords = self.get_imdb_keywords()
+        self.thread_limiter.acquire()
+        try:
+            self.plex_guid = self.get_plex_guid()
+            self.imdb_id = self.get_imdb_id()
+            self.imdb_keywords = self.get_imdb_keywords()
+        finally:
+            self.thread_limiter.release()
 
 #    @retry(ConnectTimeout, delay=2)
     def get_plex_guid(self):
@@ -119,7 +124,6 @@ class PlexEpisode2IMDb(PlexObject2IMDb):
     tvdb = api.TVDB('B43FF87DE395DF56')
 
     def get_imdb_id(self):
-        # Episodes must be matched with the TheTVDB agent
         if not 'tvdb' in self.plex_guid:
             return None
 
@@ -129,7 +133,6 @@ class PlexEpisode2IMDb(PlexObject2IMDb):
 
         try:
             episode = series[season][episode]
-        # TheTVDB knows of no such season/episode
         except TVDBIndexError:
             return None
 
@@ -144,55 +147,44 @@ class PlexEpisode2IMDb(PlexObject2IMDb):
 
 class PlexMovie2IMDb(PlexObject2IMDb):
     def get_imdb_id(self):
-        # Movies must be matched with the IMDb agent
         if not 'imdb' in self.plex_guid:
             return None
 
-        regex = r'tt(\d*)\?'
-        return re.search(regex, self.plex_guid).group()
-
-class PlexHolidays():
-    def __init__(self):
-        # Necessary to disable imdbpy logger to hide timeouts, which are handled
-        logging.getLogger('imdbpy').disabled = True
-        logging.getLogger('imdbpy.parser.http.urlopener').disabled = True
-        MAX_THREADS = 10
-        
-        plex = Plex()
-        keyword = input('Keyword (i.e. Holiday name): ').lower()
-        playlist_name = input('Playlist name: ')
-
-        print('Scanning', plex.section.title, '...')
-        if plex.section.type == 'movie':
-            Plex2IMDb = PlexMovie2IMDb
-        else:
-            Plex2IMDb = PlexEpisode2IMDb
-
-        threads = [ Plex2IMDb(medium) for medium in plex.media ]
-        batches = [ threads[i:(i+MAX_THREADS)] for i in range(0, len(threads), MAX_THREADS) ]
-        with tqdm(total=len(plex.media)) as pbar:
-            for batch in batches:
-                [ thread.start() for thread in batch ]
-                [ thread.join() for thread in batch ]
-                pbar.update(MAX_THREADS)
-
-        keyword_matches = []
-        for thread in threads:
-            if keyword in thread.imdb_keywords or \
-               keyword in thread.plex_obj.title.lower() or \
-               keyword in thread.plex_obj.summary.lower():
-                keyword_matches.append(thread.plex_obj)
-
-        if keyword_matches:
-            print(len(keyword_matches), 'items matching', '\"' + keyword + '\":')
-            for match in keyword_matches:
-                print('\t', match.title + ' (' + str(match.year) + ')')
-            plex.create_playlist(playlist_name, keyword_matches)
-            print('Playlist created.')
-        else:
-            print('No matching items, playlist will not be created/updated.')
-
-        print('Happy Holidays!')
+        return re.search(r'tt(\d*)\?', self.plex_guid).group()
 
 if __name__ == "__main__":
-    ph = PlexHolidays()
+    # Necessary to disable imdbpy logger to hide timeouts, which are handled
+    logging.getLogger('imdbpy').disabled = True
+    logging.getLogger('imdbpy.parser.http.urlopener').disabled = True
+    
+    plex = Plex()
+    keyword = input('Keyword (i.e. Holiday name): ').lower()
+    playlist_name = input('Playlist name: ')
+
+    print('Scanning', plex.section.title, '...')
+    if plex.section.type == 'movie':
+        Plex2IMDb = PlexMovie2IMDb
+    else:
+        Plex2IMDb = PlexEpisode2IMDb
+
+    threads = [ Plex2IMDb(medium) for medium in plex.media ]
+    [ thread.start() for thread in threads ]
+    [ thread.join() for thread in tqdm(threads) ]
+
+    keyword_matches = []
+    for thread in threads:
+        if keyword in thread.imdb_keywords or \
+           keyword in thread.plex_obj.title.lower() or \
+           keyword in thread.plex_obj.summary.lower():
+            keyword_matches.append(thread.plex_obj)
+
+    if keyword_matches:
+        print(len(keyword_matches), 'items matching', '\"' + keyword + '\":')
+        for match in keyword_matches:
+            print('\t', match.title + ' (' + str(match.year) + ')')
+        plex.create_playlist(playlist_name, keyword_matches)
+        print('Playlist created.')
+    else:
+        print('No matching items, playlist will not be created/updated.')
+
+    print('Happy Holidays!')
