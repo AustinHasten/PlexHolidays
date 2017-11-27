@@ -2,6 +2,7 @@
 # Initial Commit - November 16th, 2017
 # TODO Allow selection of multiple sections
 # TODO Allow multiple keywords
+# TODO Cache series
 
 import sys
 import time
@@ -9,40 +10,42 @@ import getpass
 import logging
 import threading
 import plexapi.utils
+from retry import retry
 from tqdm import tqdm
-from imdbpie import Imdb
-from requests.exceptions import HTTPError
+from pytvdbapi import api
+from pytvdbapi.error import TVDBIndexError
 from plexapi.myplex import MyPlexAccount
 from plexapi.exceptions import BadRequest
 from imdb import IMDb, IMDbDataAccessError
+from http.client import RemoteDisconnected, ResponseNotReady
 
 class Plex():
     def __init__(self):
         self.account = self.get_account()
         self.server = self.get_account_server(self.account)
         self.section = self.get_server_section(self.server)
-        self.media = self.section.all()
+        self.media = self.get_flat_media(self.section)
 
+    @retry()
     def get_account(self):
         """
             Sign into Plex account.
         """
-        while True:
-            username = input("Plex Username: ")
-            password = getpass.getpass()
+        username = input("Plex Username: ")
+        password = getpass.getpass()
 
-            print('Signing into Plex... ', end='', flush=True)
-            try:
-                account = MyPlexAccount(username, password)
-                print('Done')
-                break
-            except BadRequest:
-                print('Invalid Username/Password.')
+        print('Signing into Plex... ', end='', flush=True)
+        try:
+            account = MyPlexAccount(username, password)
+            print('Done')
+        except BadRequest:
+            print('Invalid Username/Password.')
+
         return account
     
     def get_account_server(self, account):
         """
-            Select server from Plex account.
+        Select server from Plex account.
         """
         servers = [ _ for _ in account.resources() if _.product == 'Plex Media Server' ]
         if not servers:
@@ -62,6 +65,16 @@ class Plex():
 
         return plexapi.utils.choose('Select section index', sections, 'title')
 
+    def get_flat_media(self, section):
+        # Movie sections are already flat
+        if section.type == 'movie':
+            return self.section.all()
+        else:
+            episodes = []
+            for show in self.section.all():
+                episodes += show.episodes()
+            return episodes
+
     def create_playlist(self, name, media):
         """
             Create or update playlist with list of media.
@@ -74,7 +87,6 @@ class Plex():
 
 class PlexObject2IMDb(threading.Thread):
     imdbpy = IMDb()
-    imdbpie = Imdb()
 
     def __init__(self, plex_obj):
         super().__init__()
@@ -83,134 +95,108 @@ class PlexObject2IMDb(threading.Thread):
         self.imdb_keywords = []
 
     def run(self):
+        self.plex_guid = self.get_plex_guid()
         self.imdb_id = self.get_imdb_id()
         self.imdb_keywords = self.get_imdb_keywords()
+
+#    @retry(ConnectTimeout, delay=2)
+    def get_plex_guid(self):
+        return self.plex_obj.guid
 
     def get_imdb_id(self):
         raise NotImplementedError('This is to be overridden')
 
+    @retry(IMDbDataAccessError, delay=2)
     def get_imdb_keywords(self):
         if not self.imdb_id:
             return []
 
-        # Remove 'tt' from beginning of imdb_id for imdbpy
-        if len(self.imdb_id) == 9:
-            self.imdb_id = self.imdb_id[2:]
-
-        while True:
-            try:
-                data = self.imdbpy.get_movie_keywords(self.imdb_id)['data']
-                return data.get('keywords', [])
-            except IMDbDataAccessError:
-                time.sleep(2)
+        data = self.imdbpy.get_movie_keywords(self.imdb_id)['data']
+        return data.get('keywords', [])
 
 class PlexEpisode2IMDb(PlexObject2IMDb):
-    cached_episodes = []
+    tvdb = api.TVDB('B43FF87DE395DF56')
 
-    @classmethod
-    def cache_show(self, show):
-        """
-            Cache episodes of show so we don't have to fetch them repeatedly.
-        """
-        results = [ _ for _ in self.imdbpie.search_for_title(show.title) if _.get('year') ]
-
-        # No search results for this show at all.
-        if not results:
-            return
-
-        if show.year:
-            best_match = min(results, key=lambda e: abs(int(e['year']) - show.year))
-        else:
-            best_match = results[0]
-
-        self.cached_episodes = self.imdbpie.get_episodes(best_match['imdb_id'])
-
+    # TODO Hard-coded indices work but are dubious
     def get_imdb_id(self):
-        # The case when there were no IMDb results for this episode's show
-        if not self.cached_episodes:
+        # Episodes must be matched with the TheTVDB agent
+        if not 'tvdb' in self.plex_guid:
             return None
 
-        # TODO Handle specials rather than ignoring them
-        if int(self.plex_obj.parentIndex) == 0 or self.plex_obj.index == 0:
+        split_guid = self.plex_guid.split('/')
+        series_id = int(split_guid[2])
+        season = int(split_guid[3])
+        episode = int(split_guid[4].split('?')[0])
+
+        series = self.get_tvdb_series(series_id)
+
+        try:
+            episode = series[season][episode]
+        # TheTVDB knows of no such season/episode
+        except TVDBIndexError:
             return None
 
-        # TODO Calculate episode's offset instead of comparing with every episode
-        for episode in self.cached_episodes:
-            if int(self.plex_obj.parentIndex) == episode.season and \
-                self.plex_obj.index == episode.episode:
-                return episode.imdb_id
+        imdb_id = str(episode.IMDB_ID)
+        if imdb_id.startswith('tt'):
+            imdb_id = imdb_id[2:]
 
-        # IMDb knows of no such episode. It could be that the user has an erroneous episode
-        # in their library, or it could be that IMDb and TheTVDB have different season/episode order
-        return None
+        return imdb_id
+
+    @retry((RemoteDisconnected, ResponseNotReady), delay=2)
+    def get_tvdb_series(self, series_id):
+        return self.tvdb.get_series(series_id, 'en')
 
 class PlexMovie2IMDb(PlexObject2IMDb):
+    # TODO Hard-coded indices work but are dubious
     def get_imdb_id(self):
-        results = [ _ for _ in self.imdbpie.search_for_title(self.plex_obj.title) if _.get('year') ]
-
-        # The case when there were no IMDb results for this movie
-        if not results:
+        # Movies must be matched with the IMDb agent
+        if not 'imdb' in self.plex_guid:
             return None
-
-        if not self.plex_obj.year:
-            return results[0]['imdb_id']
-
-        best_match = min(results, key=lambda m: abs(int(m['year']) - self.plex_obj.year))
-        return best_match['imdb_id']
+        
+        return self.plex_guid[28:35]
 
 class PlexHolidays():
     def __init__(self):
         # Necessary to disable imdbpy logger to hide timeouts, which are handled
         logging.getLogger('imdbpy').disabled = True
+        logging.getLogger('imdbpy.parser.http.urlopener').disabled = True
+        MAX_THREADS = 10
         
-        self.plex = Plex()
-        self.keyword = input('Keyword (i.e. Holiday name): ').lower()
-        self.keyword_matches = []
+        plex = Plex()
+        keyword = input('Keyword (i.e. Holiday name): ').lower()
         playlist_name = input('Playlist name: ')
 
-        print('Scanning', self.plex.section.title, '...')
-        if self.plex.section.type == 'movie':
-            self.match_movies()
+        print('Scanning', plex.section.title, '...')
+        if plex.section.type == 'movie':
+            Plex2IMDb = PlexMovie2IMDb
         else:
-            self.match_episodes()
+            Plex2IMDb = PlexEpisode2IMDb
 
-        if self.keyword_matches:
-            print('Items matching keyword:')
-            for match in self.keyword_matches:
+        threads = [ Plex2IMDb(medium) for medium in plex.media ]
+        batches = [ threads[i:(i+MAX_THREADS)] for i in range(0, len(threads), MAX_THREADS) ]
+        with tqdm(total=len(plex.media)) as pbar:
+            for batch in batches:
+                [ thread.start() for thread in batch ]
+                [ thread.join() for thread in batch ]
+                pbar.update(MAX_THREADS)
+
+        keyword_matches = []
+        for thread in threads:
+            if keyword in thread.imdb_keywords or \
+               keyword in thread.plex_obj.title.lower() or \
+               keyword in thread.plex_obj.summary.lower():
+                keyword_matches.append(thread.plex_obj)
+
+        if keyword_matches:
+            print(len(keyword_matches), 'items matching keyword:')
+            for match in keyword_matches:
                 print('\t', match.title + ' (' + str(match.year) + ')')
-            self.plex.create_playlist(playlist_name, self.keyword_matches)
+            plex.create_playlist(playlist_name, keyword_matches)
             print('Playlist created.')
         else:
             print('No matching items, playlist will not be created/updated.')
 
         print('Happy Holidays!')
-
-    def match_movies(self):
-        thread_list = [ PlexMovie2IMDb(movie) for movie in self.plex.media ]
-        [ thread.start() for thread in thread_list ]
-        [ thread.join() for thread in tqdm(thread_list) ]
-
-        for thread in thread_list:
-            if self.keyword in thread.imdb_keywords or \
-               self.keyword in thread.plex_obj.title.lower() or \
-               self.keyword in thread.plex_obj.summary.lower():
-                self.keyword_matches.append(thread.plex_obj)
-
-    def match_episodes(self):
-        for show in tqdm(self.plex.media):
-            PlexEpisode2IMDb.cache_show(show)
-
-            thread_list = [ PlexEpisode2IMDb(episode) for episode in show.episodes() ]
-            [ thread.start() for thread in thread_list ]
-            [ thread.join() for thread in thread_list ]
-
-            for thread in thread_list:
-                if self.keyword in thread.imdb_keywords or \
-                   self.keyword in thread.plex_obj.title.lower() or \
-                   self.keyword in thread.plex_obj.summary.lower():
-                    self.keyword_matches.append(thread.plex_obj)
-
-            del thread_list
 
 if __name__ == "__main__":
     ph = PlexHolidays()
