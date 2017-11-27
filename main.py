@@ -188,7 +188,7 @@ class PlexHolidays():
                 keyword_matches.append(thread.plex_obj)
 
         if keyword_matches:
-            print(len(keyword_matches), 'items matching keyword:')
+            print(len(keyword_matches), 'items matching', '\"' + keyword + '\":')
             for match in keyword_matches:
                 print('\t', match.title + ' (' + str(match.year) + ')')
             plex.create_playlist(playlist_name, keyword_matches)
