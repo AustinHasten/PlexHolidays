@@ -4,6 +4,7 @@
 # TODO Allow multiple keywords
 # TODO Cache series
 
+import re
 import sys
 import time
 import getpass
@@ -52,7 +53,7 @@ class Plex():
             print('No available servers.')
             sys.exit()
 
-        return plexapi.utils.choose('Select server index', servers, "name").connect()
+        return plexapi.utils.choose('Select server index', servers, 'name').connect()
 
     def get_server_section(self, server):
         """
@@ -117,17 +118,13 @@ class PlexObject2IMDb(threading.Thread):
 class PlexEpisode2IMDb(PlexObject2IMDb):
     tvdb = api.TVDB('B43FF87DE395DF56')
 
-    # TODO Hard-coded indices work but are dubious
     def get_imdb_id(self):
         # Episodes must be matched with the TheTVDB agent
         if not 'tvdb' in self.plex_guid:
             return None
 
-        split_guid = self.plex_guid.split('/')
-        series_id = int(split_guid[2])
-        season = int(split_guid[3])
-        episode = int(split_guid[4].split('?')[0])
-
+        regex = r'\/\/(\d*)\/(\d*)\/(\d*)'
+        series_id, season, episode = map(int, re.search(regex, self.plex_guid).groups())
         series = self.get_tvdb_series(series_id)
 
         try:
@@ -138,8 +135,7 @@ class PlexEpisode2IMDb(PlexObject2IMDb):
 
         imdb_id = str(episode.IMDB_ID)
         if imdb_id.startswith('tt'):
-            imdb_id = imdb_id[2:]
-
+            return imdb_id[2:]
         return imdb_id
 
     @retry((RemoteDisconnected, ResponseNotReady), delay=2)
@@ -147,13 +143,13 @@ class PlexEpisode2IMDb(PlexObject2IMDb):
         return self.tvdb.get_series(series_id, 'en')
 
 class PlexMovie2IMDb(PlexObject2IMDb):
-    # TODO Hard-coded indices work but are dubious
     def get_imdb_id(self):
         # Movies must be matched with the IMDb agent
         if not 'imdb' in self.plex_guid:
             return None
-        
-        return self.plex_guid[28:35]
+
+        regex = r'tt(\d*)\?'
+        return re.search(regex, self.plex_guid).group()
 
 class PlexHolidays():
     def __init__(self):
