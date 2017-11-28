@@ -81,7 +81,6 @@ class Plex():
 
 class PlexObject2IMDb(threading.Thread):
     imdbpy = IMDb()
-    thread_limiter = threading.BoundedSemaphore(10)
 
     def __init__(self, plex_obj):
         super().__init__()
@@ -90,13 +89,9 @@ class PlexObject2IMDb(threading.Thread):
         self.imdb_keywords = []
 
     def run(self):
-        self.thread_limiter.acquire()
-        try:
-            self.plex_guid = self.get_plex_guid()
-            self.imdb_id = self.get_imdb_id()
-            self.imdb_keywords = self.get_imdb_keywords()
-        finally:
-            self.thread_limiter.release()
+        self.plex_guid = self.get_plex_guid()
+        self.imdb_id = self.get_imdb_id()
+        self.imdb_keywords = self.get_imdb_keywords()
 
 #    @retry(ConnectTimeout, delay=2)
     def get_plex_guid(self):
@@ -149,6 +144,7 @@ if __name__ == "__main__":
     # Necessary to disable imdbpy logger to hide timeouts, which are handled
     logging.getLogger('imdbpy').disabled = True
     logging.getLogger('imdbpy.parser.http.urlopener').disabled = True
+    THREADS = 10
     
     plex = Plex()
     keyword = input('Keyword (i.e. Holiday name): ').lower()
@@ -161,8 +157,12 @@ if __name__ == "__main__":
         Plex2IMDb = PlexEpisode2IMDb
 
     threads = [ Plex2IMDb(medium) for medium in plex.media ]
-    [ thread.start() for thread in threads ]
-    [ thread.join() for thread in tqdm(threads) ]
+    with tqdm(total=len(plex.media)) as pbar:
+        for i in range(0, len(plex.media)+1, THREADS):
+            batch = threads[i:(i+THREADS)]
+            [ thread.start() for thread in batch ]
+            [ thread.join() for thread in batch ]
+            pbar.update(THREADS)
 
     keyword_matches = []
     for thread in threads:
