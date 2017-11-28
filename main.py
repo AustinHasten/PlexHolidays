@@ -134,7 +134,7 @@ class PlexEpisode2IMDb(PlexObject2IMDb):
             return imdb_id[2:]
         return imdb_id
 
-    @retry((RemoteDisconnected, ResponseNotReady), delay=2)
+    @retry((RemoteDisconnected, ResponseNotReady, AttributeError), delay=2)
     def get_tvdb_series(self, series_id):
         return self.tvdb.get_series(series_id, 'en')
 
