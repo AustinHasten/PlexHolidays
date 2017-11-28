@@ -27,7 +27,7 @@ class Plex():
         self.section = self.get_server_section(self.server)
         self.media = self.get_flat_media(self.section)
 
-    @retry()
+    @retry(BadRequest)
     def get_account(self):
         """
             Sign into Plex account.
@@ -35,14 +35,7 @@ class Plex():
         username = input("Plex Username: ")
         password = getpass.getpass()
 
-        print('Signing into Plex... ', end='', flush=True)
-        try:
-            account = MyPlexAccount(username, password)
-            print('Done')
-        except BadRequest:
-            print('Invalid Username/Password.')
-
-        return account
+        return MyPlexAccount(username, password)
     
     def get_account_server(self, account):
         """
