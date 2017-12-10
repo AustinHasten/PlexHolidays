@@ -1,0 +1,6 @@
+py -3   -m pip install plexapi
+py -3   -m pip install imdbpy
+py -3   -m pip install pytvdbapi
+py -3   -m pip install tqdm
+py -3   -m pip install retry
+py -3   -m pip install split
