@@ -1,0 +1,5 @@
+tqdm==4.11.2
+retry==0.9.2
+pytvdbapi==0.5.0
+PlexAPI==3.0.4
+IMDbPY==6.2
