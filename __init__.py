@@ -8,6 +8,7 @@ from pytvdbapi import api
 from multiprocessing.pool import ThreadPool
 from imdb import IMDb, IMDbDataAccessError
 from pytvdbapi.error import TVDBIndexError
+from requests.exceptions import ConnectTimeout
 from plexapi.exceptions import BadRequest, NotFound
 from http.client import RemoteDisconnected, ResponseNotReady
 
@@ -73,11 +74,16 @@ class PlexHolidays():
         try:
             if self.keyword in medium.title.lower() or self.keyword in medium.summary.lower():
                 return (True, medium)
-            imdb_id = self.get_imdb_id(medium.guid)
+            plex_guid = self.get_plex_guid(medium)
+            imdb_id = self.get_imdb_id(plex_guid)
             imdb_keywords = self.get_imdb_keywords(imdb_id)
             return ((self.keyword in imdb_keywords), medium)
         finally:
             self.pbar.update()
+
+    @retry(ConnectTimeout, delay=1)
+    def get_plex_guid(self, medium):
+        return medium.guid
 
     def get_imdb_id(self, plex_guid):
         if 'imdb' in plex_guid:
