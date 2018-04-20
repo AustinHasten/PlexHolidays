@@ -102,7 +102,7 @@ class PlexHolidays():
         imdb_id = str(episode.IMDB_ID)
         return imdb_id[2:] if imdb_id.startswith('tt') else imdb_id
 
-    @retry((RemoteDisconnected, ResponseNotReady, AttributeError, BrokenPipeError), delay=1)
+    @retry((RemoteDisconnected, ResponseNotReady, AttributeError, BrokenPipeError, OSError), delay=1)
     def get_tvdb_series(self, series_id):
         return self.tvdb.get_series(series_id, 'en')
 
