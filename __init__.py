@@ -78,7 +78,7 @@ class PlexHolidays():
             imdb_id = self.get_imdb_id(plex_guid)
             imdb_keywords = self.get_imdb_keywords(imdb_id)
             return ((self.keyword in imdb_keywords), medium)
-        except urllib.error.HTTPError:
+        except:
             return (False, None)
         finally:
             self.pbar.update()
