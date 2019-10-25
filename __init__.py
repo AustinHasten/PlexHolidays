@@ -19,7 +19,7 @@ class Plex():
         self.section = self.get_server_section(self.server)
         self.media = self.get_flat_media(self.section)
 
-    @retry(BadRequest)
+    @retry(BadRequest, tries=5)
     def get_account(self):
         return plexapi.utils.getMyPlexAccount()
     
@@ -78,10 +78,12 @@ class PlexHolidays():
             imdb_id = self.get_imdb_id(plex_guid)
             imdb_keywords = self.get_imdb_keywords(imdb_id)
             return ((self.keyword in imdb_keywords), medium)
+        except:
+            return (False, None)
         finally:
             self.pbar.update()
 
-    @retry(ConnectTimeout, delay=1)
+    @retry(ConnectTimeout, delay=1, tries=5)
     def get_plex_guid(self, medium):
         return medium.guid
 
@@ -102,11 +104,11 @@ class PlexHolidays():
         imdb_id = str(episode.IMDB_ID)
         return imdb_id[2:] if imdb_id.startswith('tt') else imdb_id
 
-    @retry((RemoteDisconnected, ResponseNotReady, AttributeError, BrokenPipeError, OSError), delay=1)
+    @retry((RemoteDisconnected, ResponseNotReady, AttributeError, BrokenPipeError, OSError), delay=1, tries=5)
     def get_tvdb_series(self, series_id):
         return self.tvdb.get_series(series_id, 'en')
 
-    @retry(IMDbDataAccessError, delay=1)
+    @retry(IMDbDataAccessError, delay=1, tries=5)
     def get_imdb_keywords(self, imdb_id):
         if not imdb_id:
             return []
