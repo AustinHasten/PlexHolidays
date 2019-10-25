@@ -87,7 +87,7 @@ class PlexHolidays():
 
     def get_imdb_id(self, plex_guid):
         if 'imdb' in plex_guid:
-            return re.search(r'tt(\d*)\?', plex_guid).group()
+            return re.search(r'tt(\d*)\?', plex_guid).groups()[0]
         elif 'tvdb' in plex_guid:
             return self.get_episode_id(plex_guid)
         return None
