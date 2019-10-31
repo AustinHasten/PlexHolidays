@@ -1,5 +1,5 @@
 tqdm
 retry
-pytvdbapi
+tvdb_api
 PlexAPI
 IMDbPY
