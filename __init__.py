@@ -7,7 +7,6 @@ from tqdm import tqdm
 from retry import retry
 from multiprocessing.pool import ThreadPool
 from imdb import IMDb, IMDbDataAccessError
-from pytvdbapi.error import TVDBIndexError
 from requests.exceptions import ConnectTimeout
 from plexapi.exceptions import BadRequest, NotFound
 from http.client import RemoteDisconnected, ResponseNotReady
