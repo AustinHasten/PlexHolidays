@@ -16,7 +16,8 @@ class Plex():
         self.account = self.get_account()
         self.server = self.get_account_server(self.account)
         self.section = self.get_server_section(self.server)
-        self.media = self.get_flat_media(self.section)
+        self.media = self.section.all()
+        #self.media = self.get_flat_media(self.section)
 
     @retry(BadRequest)
     def get_account(self):
@@ -86,15 +87,23 @@ class PlexHolidays():
     # TODO Handle exception if tries exceeded
     @retry(ConnectTimeout, delay=1, tries=5)
     def get_plex_guid(self, medium):
-        return medium.guid
+        # IMDb agent
+        if medium.guid:
+            return medium.guid
+        # PlexMovie agent
+        else:
+            return next((_.id for _ in medium.guids if _.id.startswith('imdb')), "")
 
     def get_imdb_id(self, plex_guid):
         if 'imdb' in plex_guid:
-            return re.search(r'tt(\d*)\?', plex_guid).groups()[0]
-        '''
+            # guid for movies using the IMDb agent: com.plexapp.agents.imdb://tt0041094?lang=en
+            # guid for movies using the PlexMovie agent: imdb://tt0041094
+            try:
+                return re.search(r'tt(\d*)(\?|$)', plex_guid).groups()[0]
+            except:
+                return ""
         elif 'tvdb' in plex_guid:
             return self.get_episode_id(plex_guid)
-        '''
         return None
 
     '''
