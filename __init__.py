@@ -1,7 +1,7 @@
 # Austin Hasten
 # Initial Commit - November 16th, 2017
 import re, sys, logging, itertools
-import tvdb_api
+#import tvdb_api
 import plexapi.utils
 from tqdm import tqdm
 from retry import retry
@@ -30,17 +30,20 @@ class Plex():
         return plexapi.utils.choose('Select server index', servers, 'name').connect()
 
     def get_server_section(self, server):
-        sections = [ _ for _ in server.library.sections() if _.type in {'movie', 'show'} ]
+        #sections = [ _ for _ in server.library.sections() if _.type in {'movie', 'show'} ]
+        sections = [ _ for _ in server.library.sections() if _.type == 'movie' ]
         if not sections:
             print('No available sections.')
             sys.exit()
         return plexapi.utils.choose('Select section index', sections, 'title')
 
+    '''
     def get_flat_media(self, section):
         if section.type == 'movie':
             return self.section.all()
         nested_episodes = [ show.episodes() for show in self.section.all() ]
         return list(itertools.chain.from_iterable(nested_episodes))
+    '''
 
     def create_playlist(self, name, media):
         try:
@@ -54,7 +57,7 @@ class PlexHolidays():
         logging.getLogger('imdbpy').disabled = True
         logging.getLogger('imdbpy.parser.http.urlopener').disabled = True
         self.imdbpy = IMDb()
-        self.tvdb = tvdb_api.Tvdb()
+        #self.tvdb = tvdb_api.Tvdb()
         self.plex = Plex()
         self.keyword = input('Keyword (i.e. Holiday name): ').lower()
         self.pbar = tqdm(self.plex.media, desc=f'{self.plex.section.title}')
@@ -88,10 +91,13 @@ class PlexHolidays():
     def get_imdb_id(self, plex_guid):
         if 'imdb' in plex_guid:
             return re.search(r'tt(\d*)\?', plex_guid).groups()[0]
+        '''
         elif 'tvdb' in plex_guid:
             return self.get_episode_id(plex_guid)
+        '''
         return None
 
+    '''
     def get_episode_id(self, plex_guid):
         regex = r'\/\/(\d*)\/(\d*)\/(\d*)'
         series_id, season, episode = map(int, re.search(regex, plex_guid).groups())
@@ -100,11 +106,14 @@ class PlexHolidays():
         except (NameError, tvdb_api.tvdb_episodenotfound, tvdb_api.tvdb_seasonnotfound):
             return None
         return imdb_id[2:] if imdb_id.startswith('tt') else imdb_id
+    '''
 
+    '''
     # TODO Handle exception if tries exceeded
     @retry((RemoteDisconnected, ResponseNotReady, AttributeError, BrokenPipeError, OSError), delay=1, tries=5)
     def get_tvdb_series(self, series_id):
         return self.tvdb.get_series(series_id, 'en')
+    '''
 
     # TODO Handle exception if tries exceeded
     @retry(IMDbDataAccessError, delay=2, tries=5)
