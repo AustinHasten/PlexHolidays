@@ -1,6 +1,6 @@
 # Austin Hasten
 # Initial Commit - November 16th, 2017
-import re, sys, logging, itertools
+import sys, logging
 import plexapi.utils
 from tqdm import tqdm
 from retry import retry
@@ -51,10 +51,8 @@ class PlexHolidays():
         self.plex = Plex()
 
         self.keyword = input('Keyword (i.e. Holiday name): ').lower()
-        self.pbar = tqdm(self.plex.media, desc=self.plex.section.title)
-        self.results = ThreadPool(10).map(self.find_matches, self.plex.media)
-        self.pbar.close()
-        self.matches = [ medium for match, medium in self.results if match ]
+        with tqdm(self.plex.media, desc=self.plex.section.title) as self.pbar:
+            self.matches = [_ for _ in ThreadPool(6).map(self.find_matches, self.plex.media) if _]
         if not self.matches:
             print('No matching items.')
         else:
@@ -66,34 +64,27 @@ class PlexHolidays():
 
     def find_matches(self, medium):
         try:
-            if self.keyword in medium.title.lower() or self.keyword in medium.summary.lower():
-                return (True, medium)
-            plex_guid = self.get_imdb_id(medium)
-            imdb_id = self.get_imdb_id(plex_guid)
-            imdb_keywords = self.get_imdb_keywords(imdb_id)
-            return ((self.keyword in imdb_keywords), medium)
+            if (
+                self.keyword in medium.title.lower() 
+                or self.keyword in medium.summary.lower()
+                or self.keyword in self.get_imdb_keywords(medium)
+            ):
+                return medium
+        except Exception as e:
+            self.pbar.write(f'UNHANDLED EXCEPTION WHILE CHECKING {medium.title}. PLEASE REPORT -', e)
         finally:
             self.pbar.update()
 
-    # IDK why this has sometimes timed out
-    @retry(ConnectTimeout, delay=1, tries=5)
-    def get_imdb_id(self, medium):
-        guid = next((_.id for _ in medium.guids if _.id.startswith('imdb')), "")
-        if guid:
-            try:
-                return re.search(r'tt(\d*)(\?|$)', plex_guid).groups()[0]
-            except:
-                return None
-        return None
-
-    # TODO Handle exception if tries exceeded
-    @retry(IMDbDataAccessError, delay=2, tries=5)
-    def get_imdb_keywords(self, imdb_id):
-        if not imdb_id:
-            return []
+    @retry(ConnectTimeout, delay=2, tries=3)
+    @retry(IMDbDataAccessError, delay=2, tries=3)
+    def get_imdb_keywords(self, medium):
         try:
+            imdb_id = next((_.id[9:] for _ in medium.guids if _.id.startswith('imdb')), '')
+            if not imdb_id:
+                return []
             return self.imdbpy.get_movie_keywords(imdb_id)['data'].get('keywords', [])
-        except IMDbDataAccessError:
+        except (ConnectTimeout, IMDbDataAccessError) as e:
+            self.pbar.write(f'Error getting keywords for {medium.title}:  "{e.args[0]["original exception"]}"')
             return []
 
 if __name__ == "__main__":
