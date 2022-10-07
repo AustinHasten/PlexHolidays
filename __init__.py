@@ -1,7 +1,6 @@
 # Austin Hasten
 # Initial Commit - November 16th, 2017
 import re, sys, logging, itertools
-#import tvdb_api
 import plexapi.utils
 from tqdm import tqdm
 from retry import retry
@@ -17,7 +16,6 @@ class Plex():
         self.server = self.get_account_server(self.account)
         self.section = self.get_server_section(self.server)
         self.media = self.section.all()
-        #self.media = self.get_flat_media(self.section)
 
     @retry(BadRequest)
     def get_account(self):
@@ -31,45 +29,38 @@ class Plex():
         return plexapi.utils.choose('Select server index', servers, 'name').connect()
 
     def get_server_section(self, server):
-        #sections = [ _ for _ in server.library.sections() if _.type in {'movie', 'show'} ]
-        sections = [ _ for _ in server.library.sections() if _.type == 'movie' ]
+        sections = [ _ for _ in server.library.sections() if _.type == 'movie' and _.agent == 'tv.plex.agents.movie' ]
         if not sections:
             print('No available sections.')
             sys.exit()
         return plexapi.utils.choose('Select section index', sections, 'title')
 
-    '''
-    def get_flat_media(self, section):
-        if section.type == 'movie':
-            return self.section.all()
-        nested_episodes = [ show.episodes() for show in self.section.all() ]
-        return list(itertools.chain.from_iterable(nested_episodes))
-    '''
-
     def create_playlist(self, name, media):
         try:
             self.server.playlist(name).addItems(media)
         except plexapi.exceptions.NotFound:
-            self.server.createPlaylist(name, media)
+            self.server.createPlaylist(title=name, items=media)
 
 class PlexHolidays():
     def __init__(self):
         # Necessary to disable imdbpy logger to hide timeouts, which are handled
         logging.getLogger('imdbpy').disabled = True
         logging.getLogger('imdbpy.parser.http.urlopener').disabled = True
+
         self.imdbpy = IMDb()
-        #self.tvdb = tvdb_api.Tvdb()
         self.plex = Plex()
+
         self.keyword = input('Keyword (i.e. Holiday name): ').lower()
-        self.pbar = tqdm(self.plex.media, desc=f'{self.plex.section.title}')
+        self.pbar = tqdm(self.plex.media, desc=self.plex.section.title)
         self.results = ThreadPool(10).map(self.find_matches, self.plex.media)
+        self.pbar.close()
         self.matches = [ medium for match, medium in self.results if match ]
         if not self.matches:
             print('No matching items.')
         else:
-            print(len(self.matches), 'items matching', '\"' + self.keyword + '\":')
+            print(f'{len(self.matches)} items matching "{self.keyword}":')
             for match in self.matches:
-                print('\t', match.title, '(' + str(match.year) + ')')
+                print(f'\t{match.title} ({match.year})')
             self.plex.create_playlist(input('Playlist name: '), self.matches)
             print('Playlist created/updated.')
 
@@ -77,52 +68,23 @@ class PlexHolidays():
         try:
             if self.keyword in medium.title.lower() or self.keyword in medium.summary.lower():
                 return (True, medium)
-            plex_guid = self.get_plex_guid(medium)
+            plex_guid = self.get_imdb_id(medium)
             imdb_id = self.get_imdb_id(plex_guid)
             imdb_keywords = self.get_imdb_keywords(imdb_id)
             return ((self.keyword in imdb_keywords), medium)
         finally:
             self.pbar.update()
 
-    # TODO Handle exception if tries exceeded
+    # IDK why this has sometimes timed out
     @retry(ConnectTimeout, delay=1, tries=5)
-    def get_plex_guid(self, medium):
-        # IMDb agent
-        if medium.guid:
-            return medium.guid
-        # PlexMovie agent
-        else:
-            return next((_.id for _ in medium.guids if _.id.startswith('imdb')), "")
-
-    def get_imdb_id(self, plex_guid):
-        if 'imdb' in plex_guid:
-            # guid for movies using the IMDb agent: com.plexapp.agents.imdb://tt0041094?lang=en
-            # guid for movies using the PlexMovie agent: imdb://tt0041094
+    def get_imdb_id(self, medium):
+        guid = next((_.id for _ in medium.guids if _.id.startswith('imdb')), "")
+        if guid:
             try:
                 return re.search(r'tt(\d*)(\?|$)', plex_guid).groups()[0]
             except:
-                return ""
-        elif 'tvdb' in plex_guid:
-            return self.get_episode_id(plex_guid)
+                return None
         return None
-
-    '''
-    def get_episode_id(self, plex_guid):
-        regex = r'\/\/(\d*)\/(\d*)\/(\d*)'
-        series_id, season, episode = map(int, re.search(regex, plex_guid).groups())
-        try:
-            imdb_id = self.tvdb[series_id][season][episode]['imdbId']
-        except (NameError, tvdb_api.tvdb_episodenotfound, tvdb_api.tvdb_seasonnotfound):
-            return None
-        return imdb_id[2:] if imdb_id.startswith('tt') else imdb_id
-    '''
-
-    '''
-    # TODO Handle exception if tries exceeded
-    @retry((RemoteDisconnected, ResponseNotReady, AttributeError, BrokenPipeError, OSError), delay=1, tries=5)
-    def get_tvdb_series(self, series_id):
-        return self.tvdb.get_series(series_id, 'en')
-    '''
 
     # TODO Handle exception if tries exceeded
     @retry(IMDbDataAccessError, delay=2, tries=5)
